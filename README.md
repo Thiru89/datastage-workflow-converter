@@ -25,6 +25,25 @@ It ingests IBM DataStage job files (`.dsx`, `.xml`, `.isx`, and raw text dumps),
 
 ---
 
+## 📸 Screenshots & Visual Walkthrough
+
+### 1. Interactive Pipeline Lineage & Source-to-Target Mapping (STTM)
+> Visualizes legacy IBM DataStage parallel jobs as interactive DAG flow charts. Drill down into individual source stages, transformer pins, lookups, and target tables alongside an automated enterprise STTM matrix.
+
+![Interactive Pipeline Lineage and STTM Dashboard](docs/screenshots/dashboard-lineage.jpg)
+
+### 2. Multi-Dialect Cloud SQL & dbt Model Generation
+> Converts proprietary DataStage transformer routines, stage variables, and formulas into production-ready ANSI SQL CTEs for Snowflake, Google Cloud BigQuery, Databricks, PostgreSQL, and dbt.
+
+![Cloud SQL and dbt Generation](docs/screenshots/sql-converter.jpg)
+
+### 3. Multi-Sheet Enterprise Excel Workbook Documentation
+> Generates 5-sheet technical workbooks (`Job_Summary`, `Source_Target_Mapping`, `Tables_and_Columns`, `Transformations_Catalog`, and `Joins_and_Filters`) with one click, ready for data governance and architecture audit reviews.
+
+![Excel Documentation Workbook Preview](docs/screenshots/excel-preview.jpg)
+
+---
+
 ## ✨ Key Features
 
 - **Automated Offline Parser**: Ingests DataStage exports (`.dsx`, `.xml`, `.isx`) directly in the browser or server without needing an active IBM Information Server or DataStage engine.
