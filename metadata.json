@@ -1,0 +1,6 @@
+{
+  "name": "DataStage ETL Scanner & SQL Converter",
+  "description": "Scan IBM DataStage ETL workflow files to extract source and target tables, columns, datatypes, transformations, joins, and filters, and generate structured Excel documentation and modern SQL scripts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
