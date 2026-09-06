@@ -1,0 +1,179 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      deploy_env:
+        description: 'Target Deployment Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================
+  # 1. Continuous Integration (Lint & Build)
+  # ==========================================
+  ci:
+    name: Lint & Build Verification
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run TypeScript & Linter Checks
+        run: npm run lint
+
+      - name: Build Application (Client + Server Bundle)
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Archive Build Artifacts (Node 22)
+        if: matrix.node-version == '22.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-build
+          path: dist/
+          retention-days: 7
+
+  # ==========================================
+  # 2. Container Build & Smoke Test
+  # ==========================================
+  docker-build:
+    name: Build & Verify Docker Container
+    needs: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: datastage-modernization-suite:test
+          load: true
+
+      - name: Smoke Test Container Health
+        run: |
+          # Start the container in background
+          docker run -d --name smoke-test -p 3000:3000 datastage-modernization-suite:test
+          
+          # Wait up to 30s for the server to be ready
+          for i in {1..15}; do
+            if curl -s http://localhost:3000/api/health | grep -q "ok"; then
+              echo "✅ Health check passed!"
+              docker stop smoke-test
+              exit 0
+            fi
+            echo "Waiting for service to start ($i)..."
+            sleep 2
+          done
+
+          echo "❌ Health check timed out!"
+          docker logs smoke-test
+          docker stop smoke-test
+          exit 1
+
+  # ==========================================
+  # 3. Continuous Deployment (Cloud Run / GHCR)
+  # ==========================================
+  deploy:
+    name: Deploy to Production
+    needs: [ci, docker-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Metadata (Tags, Labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=ref,event=branch
+
+      - name: Build and Push Container Image to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Optional: Google Cloud Run Deployment Step (if GCP credentials configured)
+      - name: Authenticate to Google Cloud (Optional)
+        id: gcp-auth
+        if: "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}"
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run (Optional)
+        if: "${{ steps.gcp-auth.outcome == 'success' }}"
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: datastage-modernization-suite
+          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          region: us-central1
+          flags: '--port=3000 --allow-unauthenticated'
+          env_vars: |
+            NODE_ENV=production
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
